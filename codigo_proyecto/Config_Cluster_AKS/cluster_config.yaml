@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debian-capstone
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: debian-capstone
+  template:
+    metadata:
+      labels:
+        app: debian-capstone
+    spec:
+      containers:
+      - name: debian-container
+        image: jcarbonellimmune/debian-capstone:10.0
+        command: ["/bin/bash", "-c", "/usr/local/bin/start_services.sh"]
+        resources:
+          limits:
+            cpu: "0.5"
+            memory: "512Mi"
+          requests:
+            cpu: "0.25"
+            memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: debian-capstone-service
+spec:
+  selector:
+    app: debian-capstone
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mysql
+  labels:
+    app: mysql
+spec:
+  containers:
+  - name: mysql-container
+    image: mysql:latest
+    ports:
+    - containerPort: 3306
+    env:
+    - name: MYSQL_ROOT_PASSWORD
+      value: yourpasAsword
+    resources:
+      limits:
+        cpu: "0.5"
+        memory: "512Mi"
+      requests:
+        cpu: "0.25"
+        memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+spec:
+  selector:
+    app: mysql
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306
