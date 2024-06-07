@@ -1,0 +1,102 @@
+trigger: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: secure_file
+    value: 'service_account.json'
+  - group: Azure
+
+stages:
+- stage: LoginAz
+  jobs:
+  - job: LoginAz
+    displayName: 'Azure Login'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - script: |
+        az login --service-principal -u $(ARM_CLIENT_ID) -p $(ARM_CLIENT_SECRET) --tenant $(ARM_TENANT_ID)
+        az aks get-credentials --resource-group capstone-grupo-aks --name cluster-aks-group --overwrite-existing
+        echo 'Conexión establecida correctamente con Azure.'
+      env:
+        ARM_CLIENT_ID: $(ClientId)
+        ARM_CLIENT_SECRET: $(Secret)
+        ARM_SUBSCRIPTION_ID: $(Subscription)
+        ARM_TENANT_ID: $(TenantId)
+
+- stage: BackupDB
+  displayName: 'Backup db de AKS'
+  jobs:
+  - job: BackupDB
+    displayName: 'Backup db de AKS'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - script: |
+        az login --service-principal -u $(ARM_CLIENT_ID) -p $(ARM_CLIENT_SECRET) --tenant $(ARM_TENANT_ID)
+        az aks get-credentials --resource-group capstone-grupo-aks --name cluster-aks-group --overwrite-existing
+        echo 'Connected to Azure.'
+      displayName: 'Azure Login'
+      env:
+        ARM_CLIENT_ID: $(ClientId)
+        ARM_CLIENT_SECRET: $(Secret)
+        ARM_SUBSCRIPTION_ID: $(Subscription)
+        ARM_TENANT_ID: $(TenantId)
+
+    - powershell: |
+        $username = "root"
+        $password = "yourpasAsword"
+        $database = "prueba"
+        $server = "mysql"
+        $fecha = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+        $backupFile = "/home/backups/backup_$fecha.sql"
+
+        kubectl exec $server -- /bin/bash -c "mkdir -p /home/backups/"
+
+        kubectl exec $server -- /bin/bash -c "mysqldump -u $username -p$password $database > $backupFile"
+
+        kubectl cp ${server}:${backupFile} $(Build.ArtifactStagingDirectory)/$backupFile
+      displayName: 'MySQL Backup'
+      env:
+        ARM_CLIENT_ID: $(ClientId)
+        ARM_CLIENT_SECRET: $(Secret)
+        ARM_SUBSCRIPTION_ID: $(Subscription)
+        ARM_TENANT_ID: $(TenantId)
+
+    - task: DownloadSecureFile@1
+      inputs:
+        secureFile: ${{ variables.secure_file }}
+        
+    - powershell: |
+        echo 'Login in GCP...'
+        gcloud auth activate-service-account --key-file=${{ variables.secure_file }}
+      displayName: "GCP login"
+      env:
+        ARM_CLIENT_ID: $(ClientId)
+        ARM_CLIENT_SECRET: $(Secret)
+        ARM_SUBSCRIPTION_ID: $(Subscription)
+        ARM_TENANT_ID: $(TenantId)
+
+    - powershell: |
+        echo 'Installing Google Cloud SDK...'
+        echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+        curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+        sudo apt-get update && sudo apt-get install google-cloud-sdk
+      displayName: "Install Google Cloud SDK"     
+      env:
+        ARM_CLIENT_ID: $(ClientId)
+        ARM_CLIENT_SECRET: $(Secret)
+        ARM_SUBSCRIPTION_ID: $(Subscription)
+        ARM_TENANT_ID: $(TenantId)
+
+    - powershell: |
+        echo 'Moving backup to GCP...'
+        gsutil mv $(Build.ArtifactStagingDirectory)/$backupFile gs://capstonebucket-jd
+      displayName: "Moving backup to GCP"
+      env:
+        ARM_CLIENT_ID: $(ClientId)
+        ARM_CLIENT_SECRET: $(Secret)
+        ARM_SUBSCRIPTION_ID: $(Subscription)
+        ARM_TENANT_ID: $(TenantId)
